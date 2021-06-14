@@ -1,0 +1,132 @@
+---
+title: "Investigating the Regulation of Cell Phone Use While Driving and the Proportion of Accidents Caused by Distracted Driving Per State in 2018"
+author: "Rose Ellison, Chinaecherem Eze, Laura Moses, Miriam Nyamwaro"
+date: "12/12/2020"
+output:
+  pdf_document: 
+    fig_width: 6.5
+    fig_height: 3.5
+    fig_crop: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Introduction, Purpose, Problem
+
+According to the National Highway Traffic Safety Administration, there were 36,560 people killed in motor vehicle traffic crashes on U.S. roadways during 2018.^1^ The number of fatalities in distraction-affected crashes was 2,841, or 7.8% of total fatalities in 2018.^2^ Hand-held cell phone use while driving, namely texting, is one of the most common distracted driving practices, and is especially dangerous for novice drivers. According to the Governors Highway Safety Association (GHSA), 42% of drivers admit to reading a text or email behind the wheel. AT&T, a prominent telecommunications company, advocates "it can wait," and has encouraged 40,388,681 individuals so far to "take the pledge to never drive distracted,"^3^ indicating the widespread problem phone usage while driving presents. 
+
+So how can cell phone use while driving be deterred? The GHSA suggests that law enforcement regulation will help. In particular, the GHSA recommends that states ban hand-held cell phone use for all drivers.^4^ Currently, no state bans all cell phone use for all drivers, but 37 states and D.C. ban all use by novice drivers. 22 states and D.C. prohibit all drivers from using hand-held cell phones while driving. This information led us to investigate the effects of regulating cell phone usage while driving in the United States. 
+
+The National Highway Traffic Safety Administration (NHTSA) is provided with data annually regarding fatal injuries in motor vehicle traffic crashes from the Fatality Analysis Reporting System (FARS), a nationwide census. FARS keeps track of the cases reported, and has a particular 2018 data set called `DISTRACT.csv`, which we will be using, that notes whether or not the driver was not distracted, or a code for the type of distraction.^5^ In order to analyze our data, we chose to calculate the proportion of distracted accidents to all accidents reported in 2018 for each of 50 states, plus D.C. The FARS Analytic User's Manual describes the codes, including each state's code and the method of distraction.^6^ For the purposes of this project, we chose codes that were related to cell phone or hand-held use, and omitted codes that were "not distracted" in the calculation of the proportion of distracted driving related accidents. These were codes: 4, 5, 6, 7, 10, 15, 17, 18, 19, 92, 93, 98, 96, 99. Regulated states were selected based on the GHSA List of Distracted Driving Laws by State with laws implemented post 2018 omitted.^7^
+
+Using the proportion of distracted driving accidents as our test statistic, we attempt to answer the following question: do current regulations actually affect the proportion of accidents that occur from distracted driving? We wish to use a permutation test to answer the above question, using the mean difference in proportion of distracted drivers between regulated states unregulated states. Therefore, our null and research hypothesis can be stated as follows: 
+
+$H_0:$ The difference in average proportions of distracted driving accidents between regulated states and non- regulated states is due to chance and insignificant.  
+
+$H_A:$ The difference in average proportions of distracted driving accidents between regulated states and non-regulated states *is* statistically significant. 
+
+```{r, include=FALSE, message=FALSE}
+# load libraries and packages
+library(tidyverse, warn.conflicts = FALSE)
+
+# read in data
+data <- read.csv("DISTRACT.CSV")
+
+# Create a df `distracted` that has columns STATE, PROP_DISTRACTED, REGULATES
+## representing the state ID, proportion of cell related accidents to total accidents per state, and 1 if the state regulates cell phone usage while driving, 0 if not.
+distracted_cat <- c(4, 5, 6, 7, 10, 15, 17, 18, 19, 92, 93, 98, 96, 99) # these are the distracted categories related to cell phone use
+data <- data %>% 
+  mutate(DISTRACTED = ifelse(MDRDSTRD %in% distracted_cat, 1, 0)) # add a boolean column whether accident was cell phone related or not
+sum_distr_per_state <- data %>% group_by(STATE) %>% summarise(SUM_DISTR = sum(DISTRACTED), .groups='drop')
+total_acc_per_state <- data %>% group_by(STATE) %>% count
+distracted <- full_join(sum_distr_per_state, total_acc_per_state, by = 'STATE')
+regulated_states <- c(6,9,10,13,15,17,23,24,32,33,34,35,36,41,44,50,53,54,11,43,52)
+distracted <- distracted %>% mutate(PROP_DISTRACTED = SUM_DISTR/n) %>% mutate(REGULATES = ifelse(STATE %in% regulated_states, "regulated", "not regulated")) %>% select(STATE, PROP_DISTRACTED, REGULATES) # add columns calculating proportion of cellular distracted accidents and whether the state regulates cell use while driving then select
+distracted <- distracted %>% arrange(REGULATES)
+```
+
+
+# Results and Discussion
+
+```{r, echo=TRUE}
+# Create subsets of the distracted data for states that prohibit cell phone use and do not prohibit
+Distracted <- subset(distracted, select = PROP_DISTRACTED, drop = T)
+regulated <- subset(distracted, select = PROP_DISTRACTED, REGULATES == "regulated", drop = TRUE)
+not_regulated <- subset(distracted, select = PROP_DISTRACTED, REGULATES == "not regulated", drop = TRUE)
+
+# Run a tapply test to get means
+tapply(distracted$PROP_DISTRACTED, distracted$REGULATES, mean)
+
+# Check for normality of data
+par(mfrow=c(1,2))
+qqnorm(regulated)
+qqline(regulated)
+
+qqnorm(not_regulated)
+qqline(not_regulated)
+
+# observed difference of mean proportions
+observed <- mean(not_regulated) - mean(regulated)
+observed
+
+# Permutation
+N <- 10^4  #set number of times to repeat this process
+set.seed(20) # set seed to reproduce results
+result <- numeric(N) # space to save the random differences
+n <- length(Distracted) # sample size = 50 states + DC = 51
+
+for(i in 1:N)
+{
+  index <- sample(n, size = length(not_regulated), replace = FALSE) # sample of numbers from 1:32
+  result[i] <- mean(Distracted[index]) - mean(Distracted[-index])
+}
+
+# Permutation Distribution with observed value
+hist(result, xlab = "xbar_notregulated - xbar_regulated",
+      main = "Perm Dist for Prop Distr Accidents")
+abline(v = observed, col = "blue", lty = 5)
+
+# Checking normality of Permuted data
+qqnorm(result)
+qqline(result)
+
+# p-value
+(sum(result >= abs(observed)) + 1)/(N + 1)
+```
+$H_0: \mu_{not \space regulated} - \mu_{regulated} = 0$ versus $H_A: \mu_{not \space regulated} - \mu_{regulated} > 0$
+
+Since the distribution of the data is not normal and the sample sizes of non-regulated states and regulated states are unequal, we use a permutation test to test our hypotheses. We permute the difference in mean proportion of accidents caused by drivers distracted by cell phone usage between states that strongly regulate cell phone use while driving and states that do not. 
+
+Our findings are summarized as follows: 
+
+* The average proportion of distracted driving accidents for states that regulate cell phone use is $0.58$.
+
+* The average proportion of distracted driving accidents for states that do not regulate cell phone use is $0.64$.
+
+* The observed difference in mean proportions for non-regulated states - regulated states is $0.0565$, so there were roughly 5.7% more accidents due to distracted driving in non-regulated states than regulated states. 
+
+* The calculated P-value from our permutation test is about 0.2390. Since this is greater than our significance level of 0.05, at this 5% significance level we fail to reject the null hypothesis in favor of the alternative research hypothesis. That is, the evidence does *not* support that the difference in proportion of distracted driving accidents is significantly greater than zero. 
+
+It is important to note, our results do not necessarily contradict GHSA's recommendation to ban all hand-held cell phone use in order to deter usage while driving. On the contrary, it is possible that the difference was not statistically significant because the the laws were not restrictive enough; we did not investigate a causality relationship here, and no state completely prohibits cell phone use while driving. It is also possible that although the state does not strictly regulate phone usage while driving, that enough individuals find it their civic duty to abide by the "it can wait" philosophy. 
+
+# Conclusion
+
+In conclusion, we were not able to attribute the lower proportion of distracted driving accidents in states that strongly regulate cell phone use while driving to those laws and regulations. Assuming that the difference in means is approximately 0, the observed outcome would occur nearly 24% by chance alone. Clearly, this is too great a percentage to conclude the difference in mean proportions is statistically significant under these circumstances. If laws become more restrictive, we may see a more statistical significance in the difference of number of distracted driving accidents in those strictly regulated states versus those that do not. 
+
+# References
+
+1. [2018 Fatal Motor Vehicle Crashes](https://crashstats.nhtsa.dot.gov/Api/Public/ViewPublication/812826)
+
+1. [NHTSA Distracted Driving Overview](https://www.nhtsa.gov/risky-driving/distracted-driving) 
+
+1. [AT&T It Can Wait](https://www.itcanwait.com/)
+
+1. [GHSA Distracted Driving](https://www.ghsa.org/issues/distracted-driving#:~:text=GHSA%20Policy&text=Driver%20distraction%2C%20including%20handheld%20device,of%20total%20fatalities%20in%202018.)
+
+1. [NHTSA FARS 2018 Data](https://www.nhtsa.gov/content/nhtsa-ftp/176776)
+
+1. [FARS Analytical User's Manual 1975 - 2018, pages 33 and 474](https://crashstats.nhtsa.dot.gov/Api/Public/ViewPublication/812827)
+
+1. [Distracted Driving Laws by State](https://www.ghsa.org/sites/default/files/2020-07/DistractedDrivingLawChart-July20.pdf)
